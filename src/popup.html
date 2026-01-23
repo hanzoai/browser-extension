@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hanzo AI Dev Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <img src="icon48.png" alt="Hanzo AI" class="logo">
+      <h1>Hanzo AI</h1>
+    </header>
+
+    <!-- Login Section -->
+    <div id="login-section" class="section">
+      <h2>Sign In</h2>
+      <p class="subtitle">Connect to your Hanzo AI account</p>
+      <button id="login-btn" class="btn btn-primary">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>
+        </svg>
+        Sign in with Hanzo IAM
+      </button>
+      <p class="help-text">
+        <a href="https://iam.hanzo.ai/register" target="_blank">Create account</a> • 
+        <a href="https://iam.hanzo.ai/forgot" target="_blank">Forgot password?</a>
+      </p>
+    </div>
+
+    <!-- Main Section (shown after login) -->
+    <div id="main-section" class="section hidden">
+      <div class="user-info">
+        <img id="user-avatar" class="avatar" src="" alt="">
+        <div>
+          <div id="user-name" class="user-name"></div>
+          <div id="user-email" class="user-email"></div>
+        </div>
+        <button id="logout-btn" class="btn-icon" title="Sign out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Features -->
+      <div class="features">
+        <div class="feature-toggle">
+          <label>
+            <input type="checkbox" id="source-maps" checked>
+            <span class="toggle"></span>
+            <div class="feature-info">
+              <strong>Source Maps</strong>
+              <small>Click-to-code navigation</small>
+            </div>
+          </label>
+        </div>
+
+        <div class="feature-toggle">
+          <label>
+            <input type="checkbox" id="webgpu-ai" checked>
+            <span class="toggle"></span>
+            <div class="feature-info">
+              <strong>WebGPU AI</strong>
+              <small>Local AI inference</small>
+            </div>
+          </label>
+        </div>
+
+        <div class="feature-toggle">
+          <label>
+            <input type="checkbox" id="browser-control">
+            <span class="toggle"></span>
+            <div class="feature-info">
+              <strong>Browser Control</strong>
+              <small>AI browser automation</small>
+            </div>
+          </label>
+        </div>
+
+        <div class="feature-toggle">
+          <label>
+            <input type="checkbox" id="tab-filesystem">
+            <span class="toggle"></span>
+            <div class="feature-info">
+              <strong>Tab Filesystem</strong>
+              <small>Mount tabs as files</small>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Connection Status -->
+      <div class="status">
+        <div class="status-item">
+          <span class="status-dot" id="mcp-status"></span>
+          <span>MCP Server</span>
+          <span id="mcp-port" class="status-detail">Port 3001</span>
+        </div>
+        <div class="status-item">
+          <span class="status-dot" id="gpu-status"></span>
+          <span>WebGPU</span>
+          <span id="gpu-detail" class="status-detail">Checking...</span>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button id="test-connection" class="btn btn-secondary">Test Connection</button>
+        <button id="open-settings" class="btn btn-secondary">Settings</button>
+      </div>
+
+      <!-- Quick Guide -->
+      <div class="guide">
+        <h3>Quick Guide</h3>
+        <p><kbd>Alt</kbd> + <kbd>Click</kbd> any element to navigate to source</p>
+        <p><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> to open Hanzo AI panel</p>
+      </div>
+    </div>
+
+    <!-- Settings Section -->
+    <div id="settings-section" class="section hidden">
+      <div class="settings-header">
+        <button id="back-btn" class="btn-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <h2>Settings</h2>
+      </div>
+
+      <div class="settings-content">
+        <div class="setting-group">
+          <h3>Connection</h3>
+          <label>
+            MCP Server URL
+            <input type="text" id="mcp-url" value="ws://localhost:3001/browser-extension">
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <h3>AI Models</h3>
+          <label>
+            Local Model Path
+            <input type="text" id="model-path" placeholder="/models/browser-control-4bit.bin">
+          </label>
+          <label>
+            Model Quantization
+            <select id="model-quant">
+              <option value="4bit">4-bit (Fastest)</option>
+              <option value="8bit">8-bit (Balanced)</option>
+              <option value="fp16">FP16 (Best Quality)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <h3>Browser Control</h3>
+          <label>
+            <input type="checkbox" id="safe-mode" checked>
+            Safe Mode (require confirmation for actions)
+          </label>
+          <label>
+            Max Workers
+            <input type="number" id="max-workers" value="3" min="1" max="10">
+          </label>
+        </div>
+
+        <button id="save-settings" class="btn btn-primary">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hanzo AI Control Panel</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div class="sidebar-container">
+    <!-- Header -->
+    <header class="sidebar-header">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 32 32" fill="none">
+          <path d="M16 2L2 9v7c0 8.5 5.5 16.5 14 18 8.5-1.5 14-9.5 14-18V9L16 2z" stroke="currentColor" stroke-width="2"/>
+          <path d="M16 8v8l6 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span>Hanzo AI</span>
+      </div>
+      <button id="minimize-btn" class="icon-btn" title="Minimize">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor">
+          <path d="M13 9l-3 3-3-3M13 6l-3 3-3-3" stroke-width="2"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Auth Section -->
+    <section id="auth-section" class="auth-section">
+      <div class="auth-status" id="auth-status">
+        <div class="status-indicator disconnected"></div>
+        <span>Not connected</span>
+      </div>
+      <button id="auth-btn" class="primary-btn">
+        Connect to Hanzo IAM
+      </button>
+    </section>
+
+    <!-- Main Content (shown after auth) -->
+    <main id="main-content" class="main-content hidden">
+      <!-- User Profile -->
+      <div class="user-profile">
+        <img id="user-avatar" class="user-avatar" src="" alt="">
+        <div class="user-details">
+          <div id="user-name" class="user-name"></div>
+          <div id="user-email" class="user-email"></div>
+        </div>
+        <button id="logout-btn" class="icon-btn" title="Disconnect">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor">
+            <path d="M7 17l-5-5 5-5M2 12h10M10 3h6a2 2 0 012 2v10a2 2 0 01-2 2h-6" stroke-width="1.5"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- MCP Connection Status -->
+      <div class="panel">
+        <h3>MCP Server</h3>
+        <div class="mcp-status">
+          <div class="status-row">
+            <span>Status</span>
+            <span id="mcp-status" class="status-value">
+              <span class="status-indicator connected"></span>
+              Connected
+            </span>
+          </div>
+          <div class="status-row">
+            <span>Endpoint</span>
+            <span class="status-value mono">localhost:3001</span>
+          </div>
+          <div class="status-row">
+            <span>Tools Available</span>
+            <span id="mcp-tools" class="status-value">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Agents -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Active Agents</h3>
+          <span id="agent-count" class="badge">0</span>
+        </div>
+        <div id="agent-list" class="agent-list">
+          <!-- Agents will be populated here -->
+        </div>
+      </div>
+
+      <!-- Tab Filesystem -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Tab Filesystem</h3>
+          <button class="icon-btn small" id="refresh-tabs" title="Refresh">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+              <path d="M14 2v5h-5M2 7a6 6 0 0111.5-2.5L14 5M2 14v-5h5M14 9a6 6 0 01-11.5 2.5L2 11" stroke-width="1.5"/>
+            </svg>
+          </button>
+        </div>
+        <div id="tab-fs" class="tab-filesystem">
+          <!-- Tab filesystem tree will be populated here -->
+        </div>
+      </div>
+
+      <!-- WebGPU Status -->
+      <div class="panel">
+        <h3>WebGPU AI</h3>
+        <div class="gpu-status">
+          <div class="status-row">
+            <span>Status</span>
+            <span id="gpu-status" class="status-value">
+              <span class="status-indicator warning"></span>
+              Checking...
+            </span>
+          </div>
+          <div class="status-row">
+            <span>Model</span>
+            <span id="gpu-model" class="status-value mono">-</span>
+          </div>
+          <div class="status-row">
+            <span>Memory</span>
+            <span id="gpu-memory" class="status-value">-</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Running Processes -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Processes</h3>
+          <span id="process-count" class="badge">0</span>
+        </div>
+        <div id="process-list" class="process-list">
+          <!-- Processes will be populated here -->
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button id="launch-agent" class="action-btn">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor">
+            <path d="M10 4v12M4 10h12" stroke-width="2"/>
+          </svg>
+          Launch Agent
+        </button>
+        <button id="settings-btn" class="action-btn">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor">
+            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" stroke-width="2"/>
+            <path d="M13.7 7.3l1.1-1.9a8 8 0 011.7 1l-1.1 1.9m0 5.4l1.1 1.9a8 8 0 01-1.7 1l-1.1-1.9M6.3 12.7l-1.1 1.9a8 8 0 01-1.7-1l1.1-1.9m0-5.4L3.5 4.4a8 8 0 011.7-1l1.1 1.9" stroke-width="2"/>
+          </svg>
+          Settings
+        </button>
+      </div>
+    </main>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="settings-panel hidden">
+      <div class="settings-header">
+        <h2>Settings</h2>
+        <button id="close-settings" class="icon-btn">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor">
+            <path d="M14 6l-8 8M6 6l8 8" stroke-width="2"/>
+          </svg>
+        </button>
+      </div>
+      
+      <div class="settings-content">
+        <div class="setting-group">
+          <h4>MCP Connection</h4>
+          <label class="setting-item">
+            <span>Server URL</span>
+            <input type="text" id="mcp-url" value="ws://localhost:3001/browser-extension">
+          </label>
+          <label class="setting-item">
+            <span>Auto-reconnect</span>
+            <input type="checkbox" id="auto-reconnect" checked>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <h4>AI Models</h4>
+          <label class="setting-item">
+            <span>Enable WebGPU</span>
+            <input type="checkbox" id="enable-webgpu" checked>
+          </label>
+          <label class="setting-item">
+            <span>Model Quantization</span>
+            <select id="quantization">
+              <option value="4bit">4-bit (Fast)</option>
+              <option value="8bit">8-bit (Balanced)</option>
+              <option value="fp16">FP16 (Quality)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <h4>Browser Control</h4>
+          <label class="setting-item">
+            <span>Safe Mode</span>
+            <input type="checkbox" id="safe-mode" checked>
+          </label>
+          <label class="setting-item">
+            <span>Max Concurrent Agents</span>
+            <input type="number" id="max-agents" value="3" min="1" max="10">
+          </label>
+        </div>
+
+        <button id="save-settings" class="primary-btn">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

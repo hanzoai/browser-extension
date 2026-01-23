@@ -1,0 +1,44 @@
+{
+  "manifest_version": 2,
+  "name": "Hanzo Browser Extension",
+  "version": "1.1.0",
+  "description": "Click-to-code navigation with WebGPU AI and browser control",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "webNavigation",
+    "devtools",
+    "<all_urls>"
+  ],
+  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' ws://localhost:* http://localhost:*;",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "web_accessible_resources": [
+    "ai-worker.js",
+    "models/*"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hanzo-ai@hanzo.ai",
+      "strict_min_version": "91.0"
+    }
+  }
+}
