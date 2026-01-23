@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Package Chrome extension
+        run: |
+          cd dist
+          zip -r ../hanzo-browser-extension-chrome-${{ steps.version.outputs.version }}.zip .
+
+      - name: Package Firefox extension
+        run: |
+          # Copy Firefox manifest if exists
+          if [ -f src/manifest-firefox.json ]; then
+            cp src/manifest-firefox.json dist/manifest.json
+          fi
+          cd dist
+          zip -r ../hanzo-browser-extension-firefox-${{ steps.version.outputs.version }}.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            hanzo-browser-extension-chrome-*.zip
+            hanzo-browser-extension-firefox-*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
