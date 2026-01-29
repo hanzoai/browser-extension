@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hanzo AI Dev Assistant",
-  "version": "1.0.0",
+  "version": "1.5.8",
   "description": "Click-to-code navigation with WebGPU AI and browser control",
   "permissions": [
     "activeTab",

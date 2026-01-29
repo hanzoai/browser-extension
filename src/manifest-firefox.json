@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Hanzo Browser Extension",
-  "version": "1.1.0",
+  "version": "1.5.8",
   "description": "Click-to-code navigation with WebGPU AI and browser control",
   "permissions": [
     "activeTab",
