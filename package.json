@@ -4,7 +4,7 @@
   "description": "Hanzo AI Browser Extension",
   "main": "dist/background.js",
   "scripts": {
-    "build": "echo 'Browser extension build completed'",
+    "build": "node src/build.js",
     "watch": "node src/build.js --watch",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -208,11 +208,15 @@ server.on('elementSelected', (data) => {
 \`\`\`
 `);
 
-  // Copy icons if they exist
+  // Copy icons if they exist (check both src/ and images/ directories)
   ['icon16.png', 'icon48.png', 'icon128.png'].forEach(icon => {
-    const iconPath = path.join('images', icon);
+    const srcIconPath = path.join('src', icon);
+    const imagesIconPath = path.join('images', icon);
+    const iconPath = fs.existsSync(srcIconPath) ? srcIconPath : imagesIconPath;
     if (fs.existsSync(iconPath)) {
       fs.copyFileSync(iconPath, path.join('dist/browser-extension', icon));
+      fs.copyFileSync(iconPath, path.join('dist/browser-extension/firefox', icon));
+      fs.copyFileSync(iconPath, path.join('dist/browser-extension/chrome', icon));
     }
   });
 
