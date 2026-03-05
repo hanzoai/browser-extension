@@ -152,35 +152,49 @@ export async function login(): Promise<UserInfo> {
   const returnedState = url.searchParams.get('state');
   if (returnedState !== state) throw new Error('State mismatch — possible CSRF');
 
+  // Handle both code flow and implicit token flow responses.
+  // The login page may return tokens directly (type=token) or an auth code (type=code).
   const code = url.searchParams.get('code');
-  if (!code) {
-    const error = url.searchParams.get('error_description') || url.searchParams.get('error') || 'No authorization code';
+  const directToken = url.searchParams.get('access_token');
+
+  if (directToken) {
+    // Implicit flow — tokens returned directly in redirect URL
+    const tokens: TokenData = {
+      access_token: directToken,
+      refresh_token: url.searchParams.get('refresh_token') || undefined,
+      token_type: 'Bearer',
+    };
+    await storeTokens(tokens);
+  } else if (code) {
+    // Authorization code flow — exchange code for tokens via PKCE
+    const tokenResponse = await fetch(`${IAM_API}/api/login/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        client_id: CLIENT_ID,
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: codeVerifier,
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const errText = await tokenResponse.text();
+      throw new Error(`Token exchange failed: ${errText}`);
+    }
+
+    const tokens: TokenData = await tokenResponse.json();
+    await storeTokens(tokens);
+  } else {
+    const error = url.searchParams.get('error_description') || url.searchParams.get('error') || 'No authorization code or token';
     throw new Error(error);
   }
 
-  // Exchange code for tokens via Casdoor API (PKCE — no client_secret needed)
-  const tokenResponse = await fetch(`${IAM_API}/api/login/oauth/access_token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'authorization_code',
-      client_id: CLIENT_ID,
-      code,
-      redirect_uri: redirectUri,
-      code_verifier: codeVerifier,
-    }),
-  });
-
-  if (!tokenResponse.ok) {
-    const errText = await tokenResponse.text();
-    throw new Error(`Token exchange failed: ${errText}`);
-  }
-
-  const tokens: TokenData = await tokenResponse.json();
-  await storeTokens(tokens);
-
-  // Fetch user info
-  const user = await fetchUserInfo(tokens.access_token);
+  // Fetch user info using the stored token
+  const { accessToken } = await getStoredTokens();
+  if (!accessToken) throw new Error('Login succeeded but no token was stored');
+  const user = await fetchUserInfo(accessToken);
   await chrome.storage.local.set({ [STORAGE_KEYS.user]: user });
 
   return user;
