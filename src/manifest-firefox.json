@@ -1,17 +1,24 @@
 {
-  "manifest_version": 2,
-  "name": "Hanzo Browser Extension",
-  "version": "1.5.8",
-  "description": "Click-to-code navigation with WebGPU AI and browser control",
+  "manifest_version": 3,
+  "name": "Hanzo AI",
+  "version": "1.7.2",
+  "description": "AI-powered dev assistant — click-to-code navigation, source maps, WebGPU AI, and MCP integration for Claude Code.",
   "permissions": [
     "activeTab",
+    "identity",
     "storage",
     "tabs",
     "webNavigation",
-    "devtools",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "https://localhost/*",
     "<all_urls>"
   ],
-  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' ws://localhost:* http://localhost:*;",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
@@ -21,9 +28,9 @@
   ],
   "background": {
     "scripts": ["background.js"],
-    "persistent": true
+    "type": "module"
   },
-  "browser_action": {
+  "action": {
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icon16.png",
@@ -31,14 +38,29 @@
       "128": "icon128.png"
     }
   },
+  "sidebar_action": {
+    "default_title": "Hanzo AI",
+    "default_panel": "sidebar.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png"
+    }
+  },
   "web_accessible_resources": [
-    "ai-worker.js",
-    "models/*"
+    {
+      "resources": ["ai-worker.js", "models/*"],
+      "matches": ["<all_urls>"]
+    }
   ],
   "browser_specific_settings": {
     "gecko": {
       "id": "hanzo-ai@hanzo.ai",
-      "strict_min_version": "91.0"
-    }
+      "strict_min_version": "109.0"
+    },
+    "gecko_android": {}
+  },
+  "data_collection_permissions": {
+    "purposes": ["functionality"],
+    "data_categories": ["technical_data"]
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@hanzo/browser-extension",
-  "version": "1.5.8",
+  "version": "1.7.2",
   "description": "Hanzo AI Browser Extension",
   "main": "dist/background.js",
   "scripts": {
@@ -10,8 +10,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.50.3",
-    "axios": "^1.10.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "ws": "^8.18.3"

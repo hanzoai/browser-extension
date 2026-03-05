@@ -14,6 +14,7 @@ import * as path from 'path';
 interface CDPClient {
   ws: WebSocket;
   capabilities: string[];
+  browser: string;
   tabId?: number;
 }
 
@@ -87,9 +88,15 @@ class CDPBridgeServer {
     if (message.type === 'register') {
       this.clients.set(ws, {
         ws,
-        capabilities: message.capabilities || []
+        capabilities: message.capabilities || [],
+        browser: message.browser || 'unknown',
       });
-      console.log('[hanzo.browser] Registered:', message.capabilities?.join(', '));
+      console.log(`[hanzo.browser] Registered ${message.browser || 'unknown'}:`, message.capabilities?.join(', '));
+      return;
+    }
+
+    if (message.type === 'config') {
+      this.saveConfig(message.key, message.value);
       return;
     }
 
@@ -109,6 +116,37 @@ class CDPBridgeServer {
     if (message.type === 'event') {
       console.log(`[hanzo.browser] Event: ${message.method}`);
     }
+  }
+
+  /** Save a config value to ~/.hanzo/extension/config.json */
+  private saveConfig(key: string, value: unknown): void {
+    const configDir = path.join(
+      process.env.HOME || process.env.USERPROFILE || '.',
+      '.hanzo',
+      'extension',
+    );
+    const configPath = path.join(configDir, 'config.json');
+
+    try {
+      fs.mkdirSync(configDir, { recursive: true });
+
+      let config: Record<string, unknown> = {};
+      if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      }
+      config[key] = value;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+      console.log(`[hanzo.browser] Config saved: ${key} = ${JSON.stringify(value)}`);
+    } catch (error: any) {
+      console.error(`[hanzo.browser] Failed to save config: ${error.message}`);
+    }
+  }
+
+  /** Get connected browser names */
+  getConnectedBrowsers(): string[] {
+    return Array.from(this.clients.values())
+      .map((c) => (c as any).browser || 'unknown')
+      .filter((b) => b !== 'unknown');
   }
 
   private async sendRaw(method: string, params?: any): Promise<any> {
@@ -155,16 +193,13 @@ class CDPBridgeServer {
         return this.sendRaw('Page.reload');
 
       case 'url':
-        return this.sendRaw('Runtime.evaluate', {
-          expression: 'window.location.href',
-          returnByValue: true
-        });
+        return this.sendRaw('hanzo.url');
 
       case 'title':
-        return this.sendRaw('Runtime.evaluate', {
-          expression: 'document.title',
-          returnByValue: true
-        });
+        return this.sendRaw('hanzo.title');
+
+      case 'tab_info':
+        return this.sendRaw('hanzo.tabInfo');
 
       case 'content':
         return this.sendRaw('Runtime.evaluate', {
@@ -335,6 +370,7 @@ async function startJSONRPCServer(bridgeServer: CDPBridgeServer) {
       res.end(JSON.stringify({
         service: 'hanzo.browser',
         connected: bridgeServer.isConnected(),
+        browsers: bridgeServer.getConnectedBrowsers(),
         actions: [
           'navigate', 'navigate_back', 'reload', 'url', 'title', 'content',
           'screenshot', 'snapshot',
@@ -344,6 +380,7 @@ async function startJSONRPCServer(bridgeServer: CDPBridgeServer) {
           'wait', 'wait_for_load',
           'tabs', 'new_tab', 'close_tab', 'select_tab',
           'console', 'network_requests',
+          'takeover.start', 'takeover.end', 'takeover.cursor',
           'status'
         ]
       }));

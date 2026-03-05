@@ -1,10 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Hanzo AI Dev Assistant",
-  "version": "1.5.8",
-  "description": "Click-to-code navigation with WebGPU AI and browser control",
+  "name": "Hanzo AI",
+  "version": "1.7.2",
+  "description": "AI-powered dev assistant — click-to-code navigation, source maps, WebGPU AI, and MCP integration for Claude Code.",
   "permissions": [
     "activeTab",
+    "identity",
+    "sidePanel",
     "storage",
     "tabs",
     "webNavigation",
@@ -16,6 +18,9 @@
     "https://localhost/*",
     "<all_urls>"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
@@ -34,6 +39,14 @@
       "48": "icon48.png",
       "128": "icon128.png"
     }
+  },
+  "side_panel": {
+    "default_path": "sidebar.html"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   },
   "web_accessible_resources": [
     {

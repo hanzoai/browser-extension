@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { BrowserExtensionServer } from '../../vscode/src/mcp-tools/browser-extension-server';
+import { BrowserExtensionServer } from '../src/browser-extension-server';
 import WebSocket from 'ws';
 import * as path from 'path';
 import * as fs from 'fs';

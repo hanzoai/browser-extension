@@ -24,7 +24,7 @@ async function build() {
     sourcemap: 'inline'
   });
 
-  // Build background script for Chrome (with WebGPU support)
+  // Build background script for Chrome
   await esbuild.build({
     entryPoints: ['src/background.ts'],
     bundle: true,
@@ -35,14 +35,14 @@ async function build() {
     external: ['chrome', 'browser']
   });
 
-  // Build Firefox-specific background script (no ESM export, uses browser.* APIs)
+  // Build Firefox-specific background script
   await esbuild.build({
     entryPoints: ['src/background-firefox.ts'],
     bundle: true,
     outfile: 'dist/browser-extension/background-firefox.js',
     platform: 'browser',
     target: ['firefox91'],
-    format: 'iife',  // Immediately-invoked function expression (no exports)
+    format: 'iife',
     external: ['browser']
   });
 
@@ -54,6 +54,26 @@ async function build() {
     platform: 'browser',
     target: 'es2020',
     format: 'esm'
+  });
+
+  // Build sidebar (TS preferred, JS fallback)
+  await esbuild.build({
+    entryPoints: [fs.existsSync('src/sidebar.ts') ? 'src/sidebar.ts' : 'src/sidebar.js'],
+    bundle: true,
+    outfile: 'dist/browser-extension/sidebar.js',
+    platform: 'browser',
+    target: ['chrome90', 'firefox91', 'safari14'],
+    sourcemap: 'inline',
+  });
+
+  // Build popup (TS preferred, JS fallback)
+  await esbuild.build({
+    entryPoints: [fs.existsSync('src/popup.ts') ? 'src/popup.ts' : 'src/popup.js'],
+    bundle: true,
+    outfile: 'dist/browser-extension/popup.js',
+    platform: 'browser',
+    target: ['chrome90', 'firefox91', 'safari14'],
+    sourcemap: 'inline',
   });
 
   // Build browser control module
@@ -73,12 +93,17 @@ async function build() {
     outfile: 'dist/browser-extension/cli.js',
     platform: 'node',
     target: 'node16',
-    // Bundle dependencies for standalone CLI
-    // bundle: true,
-    packages: 'external' // Only exclude node built-ins
-    // banner: {
-    //   js: '#!/usr/bin/env node'
-    // }
+    packages: 'external'
+  });
+
+  // Build CDP Bridge Server
+  await esbuild.build({
+    entryPoints: ['src/cdp-bridge-server.ts'],
+    bundle: true,
+    outfile: 'dist/browser-extension/cdp-bridge-server.js',
+    platform: 'node',
+    target: 'node16',
+    packages: 'external'
   });
 
   // Make CLI executable
@@ -86,44 +111,24 @@ async function build() {
     execSync('chmod +x dist/browser-extension/cli.js');
   }
 
-  // Build TypeScript declarations
-  console.log('Building TypeScript declarations...');
-  // Check if we should run tsc in root or src, based on where tsconfig is.
-  // Assuming root tsconfig covers src, or src has one.
-  // There is a tsconfig in src.
-  // execSync('cd src && npx tsc --noEmit', { stdio: 'inherit' });
+  // Copy manifests
+  fs.copyFileSync('src/manifest.json', 'dist/browser-extension/manifest.json');
+  fs.copyFileSync('src/manifest.json', 'dist/browser-extension/chrome/manifest.json');
+  fs.copyFileSync('src/manifest-firefox.json', 'dist/browser-extension/firefox/manifest.json');
 
-  // Copy manifests for different browsers
-  fs.copyFileSync(
-    'src/manifest.json',
-    'dist/browser-extension/manifest.json'
-  );
-
-  // Chrome version
-  fs.copyFileSync(
-    'src/manifest.json',
-    'dist/browser-extension/chrome/manifest.json'
-  );
-
-  // Firefox version
-  fs.copyFileSync(
-    'src/manifest-firefox.json',
-    'dist/browser-extension/firefox/manifest.json'
-  );
-
-  // Safari needs special handling - create stub (unchanged)
+  // Safari Info.plist
   fs.writeFileSync('dist/browser-extension/safari/Info.plist', `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>Hanzo AI Dev Assistant</string>
+    <string>Hanzo AI</string>
     <key>CFBundleIdentifier</key>
     <string>ai.hanzo.browser-extension</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>1.7.2</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.7.2</string>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>
@@ -134,23 +139,47 @@ async function build() {
 </dict>
 </plist>`);
 
+  // Static files to copy into each browser directory
+  const staticFiles = ['popup.html', 'popup.css', 'sidebar.html', 'sidebar.css', 'callback.html', 'ai-worker.js'];
+  const iconFiles = ['icon16.png', 'icon32.png', 'icon48.png', 'icon128.png'];
+
   // Copy common files to each browser directory
   ['chrome', 'firefox', 'safari'].forEach(browserName => {
+    const dir = `dist/browser-extension/${browserName}`;
+
     fs.copyFileSync(
       'dist/browser-extension/content-script.js',
-      `dist/browser-extension/${browserName}/content-script.js`
+      `${dir}/content-script.js`
     );
-    // Firefox uses its own background script (no ESM, uses browser.* APIs)
+
+    // Firefox uses IIFE background; Chrome/Safari use ESM
     if (browserName === 'firefox') {
-      fs.copyFileSync(
-        'dist/browser-extension/background-firefox.js',
-        `dist/browser-extension/${browserName}/background.js`
-      );
+      fs.copyFileSync('dist/browser-extension/background-firefox.js', `${dir}/background.js`);
     } else {
-      fs.copyFileSync(
-        'dist/browser-extension/background.js',
-        `dist/browser-extension/${browserName}/background.js`
-      );
+      fs.copyFileSync('dist/browser-extension/background.js', `${dir}/background.js`);
+    }
+
+    // Copy static HTML/CSS/JS
+    for (const f of staticFiles) {
+      const src = path.join('src', f);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, path.join(dir, f));
+      }
+    }
+
+    // Copy compiled popup/sidebar scripts
+    fs.copyFileSync('dist/browser-extension/popup.js', path.join(dir, 'popup.js'));
+    fs.copyFileSync('dist/browser-extension/sidebar.js', path.join(dir, 'sidebar.js'));
+
+    // Copy icons (check src/ first, then images/)
+    for (const icon of iconFiles) {
+      const srcIcon = path.join('src', icon);
+      const imgIcon = path.join('images', icon);
+      if (fs.existsSync(srcIcon)) {
+        fs.copyFileSync(srcIcon, path.join(dir, icon));
+      } else if (fs.existsSync(imgIcon)) {
+        fs.copyFileSync(imgIcon, path.join(dir, icon));
+      }
     }
   });
 
@@ -162,68 +191,38 @@ async function build() {
     JSON.stringify(pkg, null, 2)
   );
 
-  // Create README for npm package
-  fs.writeFileSync('dist/browser-extension/README.md', `# Hanzo Browser DevTools
-
-Click-to-code navigation for web developers with MCP integration.
-
-## Installation
-
-\`\`\`bash
-npm install -g @hanzoai/browser-devtools
-\`\`\`
-
-## Usage
-
-1. Start the server:
-\`\`\`bash
-hanzo-browser-server start
-\`\`\`
-
-2. Install the browser extension:
-\`\`\`bash
-hanzo-browser-server install-extension
-\`\`\`
-
-3. Alt+Click any element in your browser to navigate to its source code!
-
-## Features
-
-- 🎯 **Source-map support** for React, Vue, Svelte
-- 🔍 **Fallback tagging** for legacy code
-- 🚀 **MCP integration** for Claude Code
-- ⚡ **Lightning fast** WebSocket communication
-
-## Integration with Claude Code
-
-The server exposes element selection events that can be consumed by MCP tools:
-
-\`\`\`javascript
-server.on('elementSelected', (data) => {
-  // data.file - Source file path
-  // data.line - Line number
-  // data.column - Column number (if available)
-  // data.framework - Detected framework
-});
-\`\`\`
-`);
-
-  // Copy icons if they exist (check both src/ and images/ directories)
-  ['icon16.png', 'icon48.png', 'icon128.png'].forEach(icon => {
-    const srcIconPath = path.join('src', icon);
-    const imagesIconPath = path.join('images', icon);
-    const iconPath = fs.existsSync(srcIconPath) ? srcIconPath : imagesIconPath;
-    if (fs.existsSync(iconPath)) {
-      fs.copyFileSync(iconPath, path.join('dist/browser-extension', icon));
-      fs.copyFileSync(iconPath, path.join('dist/browser-extension/firefox', icon));
-      fs.copyFileSync(iconPath, path.join('dist/browser-extension/chrome', icon));
+  // Copy icons to root dist
+  for (const icon of iconFiles) {
+    const srcIcon = path.join('src', icon);
+    const imgIcon = path.join('images', icon);
+    if (fs.existsSync(srcIcon)) {
+      fs.copyFileSync(srcIcon, path.join('dist/browser-extension', icon));
+    } else if (fs.existsSync(imgIcon)) {
+      fs.copyFileSync(imgIcon, path.join('dist/browser-extension', icon));
     }
-  });
+  }
 
-  console.log('✅ Browser extension built successfully!');
-  console.log('📦 Extension: dist/browser-extension/');
-  console.log('📦 NPM package ready in: dist/browser-extension/');
-  console.log('\nTo publish to npm: cd dist/browser-extension && npm publish');
+  // Generate Safari Xcode project if available
+  try {
+    execSync('xcrun --find safari-web-extension-converter', { stdio: 'ignore' });
+    console.log('Generating Safari Xcode project...');
+    execSync(
+      `xcrun safari-web-extension-converter dist/browser-extension/chrome/ ` +
+      `--project-location dist/safari ` +
+      `--app-name "Hanzo AI" ` +
+      `--bundle-identifier ai.hanzo.browser-extension ` +
+      `--no-prompt --no-open --force`,
+      { stdio: 'inherit' }
+    );
+    console.log('Safari: dist/safari/ (macOS + iOS Xcode project)');
+  } catch {
+    console.log('Safari: skipped (Xcode not available)');
+  }
+
+  console.log('Build complete!');
+  console.log('  Chrome:  dist/browser-extension/chrome/');
+  console.log('  Firefox: dist/browser-extension/firefox/');
+  console.log('  NPM:     dist/browser-extension/');
 }
 
 build().catch(console.error);
