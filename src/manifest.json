@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hanzo AI",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "description": "AI-powered dev assistant — click-to-code navigation, source maps, WebGPU AI, and MCP integration for Claude Code.",
   "permissions": [
     "activeTab",
