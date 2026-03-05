@@ -59,17 +59,27 @@ document.addEventListener('DOMContentLoaded', () => {
     loginBtn.textContent = 'Signing in...';
     chrome.runtime.sendMessage({ action: 'auth.login' }, (response) => {
       loginBtn.disabled = false;
-      loginBtn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg> Sign in with Hanzo';
+      loginBtn.textContent = 'Sign in with Hanzo';
       if (response?.success) {
         checkAuth();
+      } else {
+        const msg = response?.error || 'Unable to sign in. Please try again.';
+        loginBtn.textContent = msg;
+        setTimeout(() => { loginBtn.textContent = 'Sign in with Hanzo'; }, 3000);
       }
     });
   });
 
   logoutBtn?.addEventListener('click', () => {
     chrome.runtime.sendMessage({ action: 'auth.logout' }, () => {
-      mainSection.classList.add('hidden');
       loginSection.classList.remove('hidden');
+      // Keep main section visible — tools work without auth
+      const avatar = document.getElementById('user-avatar') as HTMLImageElement;
+      const name = document.getElementById('user-name');
+      const email = document.getElementById('user-email');
+      if (avatar) avatar.src = '';
+      if (name) name.textContent = '';
+      if (email) email.textContent = '';
     });
   });
 

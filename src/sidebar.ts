@@ -66,7 +66,7 @@ class HanzoSidebar {
 
   setupEventListeners() {
     // Auth
-    this.el.authBtn.addEventListener('click', () => this.login());
+    this.el.authBtn?.addEventListener('click', () => this.login());
 
     // Tabs
     document.querySelectorAll('.tab').forEach(tab => {
@@ -91,12 +91,12 @@ class HanzoSidebar {
     });
 
     // Tools
-    this.el.refreshTabs.addEventListener('click', () => this.refreshTabFilesystem());
-    this.el.launchAgent.addEventListener('click', () => this.showAgentLauncher());
+    this.el.refreshTabs?.addEventListener('click', () => this.refreshTabFilesystem());
+    this.el.launchAgent?.addEventListener('click', () => this.showAgentLauncher());
 
     // Settings
-    this.el.logoutBtn.addEventListener('click', () => this.logout());
-    this.el.saveSettings.addEventListener('click', () => this.saveSettings());
+    this.el.logoutBtn?.addEventListener('click', () => this.logout());
+    this.el.saveSettings?.addEventListener('click', () => this.saveSettings());
 
     // Background messages
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -113,7 +113,6 @@ class HanzoSidebar {
     // Always show tabs and initialize tools — auth only gates chat
     this.el.tabBar.classList.remove('hidden');
     this.el.authSection.classList.add('hidden');
-    this.switchTab('tools'); // Default to tools (always works)
 
     // Initialize features that work without auth
     this.connectToMCP();
@@ -129,10 +128,12 @@ class HanzoSidebar {
         this.switchTab('chat');
       } else {
         this.showChatLoginPrompt();
+        this.switchTab('chat'); // Show chat tab with login prompt
       }
     } catch (error) {
       console.error('Auth check failed:', error);
       this.showChatLoginPrompt();
+      this.switchTab('chat');
     }
   }
 
@@ -152,7 +153,7 @@ class HanzoSidebar {
       this.showError('Sign in failed');
     } finally {
       this.el.authBtn.disabled = false;
-      this.el.authBtn.textContent = 'Sign in with Hanzo';
+      this.el.authBtn.textContent = 'Sign in';
     }
   }
 
