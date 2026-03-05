@@ -1,3 +1,13 @@
+# DEPRECATED — Moved to [hanzoai/extension](https://github.com/hanzoai/extension)
+
+> **This repo is archived.** All browser extension development now lives in
+> [`hanzoai/extension`](https://github.com/hanzoai/extension) under `packages/browser/`.
+>
+> All auth fixes from this repo have been back-merged into the monorepo.
+> Please file issues and PRs there.
+
+---
+
 # Hanzo AI Browser Extension
 
 AI-powered browser extension for Chrome, Firefox, Edge, and Safari.
