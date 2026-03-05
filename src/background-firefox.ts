@@ -622,8 +622,46 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
       }
 
       case 'auth.getToken': {
-        const r = await browser.storage.local.get([STORAGE_KEYS.accessToken]);
-        sendResponse({ success: !!r[STORAGE_KEYS.accessToken], token: r[STORAGE_KEYS.accessToken] || null });
+        const r = await browser.storage.local.get([
+          STORAGE_KEYS.accessToken,
+          STORAGE_KEYS.refreshToken,
+          STORAGE_KEYS.expiresAt,
+        ]);
+        let token = r[STORAGE_KEYS.accessToken] || null;
+        const expiresAt = r[STORAGE_KEYS.expiresAt] || null;
+        const refreshTok = r[STORAGE_KEYS.refreshToken] || null;
+
+        // Auto-refresh if expired (60s buffer)
+        if (token && expiresAt && Date.now() >= expiresAt - 60_000 && refreshTok) {
+          try {
+            const resp = await fetch(`${IAM_BASE}/oauth/token`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                client_id: CLIENT_ID,
+                refresh_token: refreshTok,
+              }),
+            });
+            if (resp.ok) {
+              const tokens = await resp.json();
+              const data: any = { [STORAGE_KEYS.accessToken]: tokens.access_token };
+              if (tokens.refresh_token) data[STORAGE_KEYS.refreshToken] = tokens.refresh_token;
+              if (tokens.id_token) data[STORAGE_KEYS.idToken] = tokens.id_token;
+              if (tokens.expires_in) data[STORAGE_KEYS.expiresAt] = Date.now() + tokens.expires_in * 1000;
+              await browser.storage.local.set(data);
+              token = tokens.access_token;
+            } else {
+              // Refresh failed — clear tokens, user must re-login
+              await browser.storage.local.remove(Object.values(STORAGE_KEYS));
+              token = null;
+            }
+          } catch {
+            // Network error — return existing token, let API reject if expired
+          }
+        }
+
+        sendResponse({ success: !!token, token });
         break;
       }
 
@@ -635,6 +673,63 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
         sendResponse({ success: true, models: data.data || data.models || data || [] });
         break;
       }
+
+      case 'chat.complete': {
+        const t = await browser.storage.local.get([STORAGE_KEYS.accessToken]);
+        if (!t[STORAGE_KEYS.accessToken]) { sendResponse({ success: false, error: 'Not authenticated' }); break; }
+        try {
+          const model = String(request.model || 'gpt-4o');
+          const messages = (Array.isArray(request.messages) ? request.messages : [])
+            .filter((m: any) => m && typeof m.content === 'string' && typeof m.role === 'string')
+            .map((m: any) => ({
+              role: (m.role === 'system' || m.role === 'assistant') ? m.role : 'user',
+              content: String(m.content),
+            }))
+            .slice(-24);
+          if (!messages.length) { sendResponse({ success: false, error: 'messages are required' }); break; }
+          const resp = await fetch(`${API_BASE}/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${t[STORAGE_KEYS.accessToken]}`,
+            },
+            body: JSON.stringify({
+              model, messages,
+              temperature: typeof request.temperature === 'number' ? request.temperature : undefined,
+              max_tokens: typeof request.max_tokens === 'number' ? request.max_tokens : undefined,
+            }),
+          });
+          if (!resp.ok) throw new Error(`Chat API error ${resp.status}`);
+          const chatData = await resp.json();
+          sendResponse({ success: true, content: chatData.choices?.[0]?.message?.content || '' });
+        } catch (e: any) {
+          sendResponse({ success: false, error: e.message });
+        }
+        break;
+      }
+
+      case 'elementSelected':
+        // Forward to CDP WebSocket if connected (click-to-code)
+        if (hanzoExtension['wsConnection']?.readyState === WebSocket.OPEN) {
+          hanzoExtension['wsConnection'].send(JSON.stringify({
+            type: 'elementSelected',
+            data: request.data,
+          }));
+        }
+        sendResponse({ success: true });
+        break;
+
+      case 'config.save':
+        sendResponse({ success: true });
+        break;
+
+      case 'bridge.status':
+        sendResponse({
+          success: true,
+          connected: hanzoExtension['wsConnection']?.readyState === WebSocket.OPEN,
+          browsers: hanzoExtension['wsConnection']?.readyState === WebSocket.OPEN ? ['firefox'] : [],
+        });
+        break;
 
       case 'checkWebGPU': {
         try {
