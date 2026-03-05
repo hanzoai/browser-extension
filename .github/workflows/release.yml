@@ -32,24 +32,27 @@ jobs:
 
       - name: Package Chrome extension
         run: |
-          cd dist
-          zip -r ../hanzo-browser-extension-chrome-${{ steps.version.outputs.version }}.zip .
+          cd dist/browser-extension/chrome
+          zip -r ../../../hanzo-ai-chrome-${{ steps.version.outputs.version }}.zip .
 
       - name: Package Firefox extension
         run: |
-          # Copy Firefox manifest if exists
-          if [ -f src/manifest-firefox.json ]; then
-            cp src/manifest-firefox.json dist/manifest.json
-          fi
-          cd dist
-          zip -r ../hanzo-browser-extension-firefox-${{ steps.version.outputs.version }}.zip .
+          cd dist/browser-extension/firefox
+          zip -r ../../../hanzo-ai-firefox-${{ steps.version.outputs.version }}.zip .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.version.outputs.version }}
           files: |
-            hanzo-browser-extension-chrome-*.zip
-            hanzo-browser-extension-firefox-*.zip
-          generate_release_notes: true
+            hanzo-ai-chrome-*.zip
+            hanzo-ai-firefox-*.zip
+          generate_release_notes: false
+          body: |
+            Hanzo AI Browser Extension ${{ steps.version.outputs.version }}
+
+            ## Downloads
+            - **Chrome**: `hanzo-ai-chrome-${{ steps.version.outputs.version }}.zip` — load unpacked from `chrome://extensions`
+            - **Firefox**: `hanzo-ai-firefox-${{ steps.version.outputs.version }}.zip` — load as temporary add-on from `about:debugging`
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
