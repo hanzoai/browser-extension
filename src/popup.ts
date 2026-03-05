@@ -193,11 +193,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // GPU status
-    chrome.runtime.sendMessage({ action: 'runLocalAI', prompt: '' }, (response) => {
+    chrome.runtime.sendMessage({ action: 'checkWebGPU' }, (response) => {
       if (chrome.runtime.lastError) return;
-      gpuStatus.classList.add(response?.success ? 'connected' : 'disconnected');
-      gpuStatus.classList.remove(response?.success ? 'disconnected' : 'connected');
-      gpuDetail.textContent = response?.success ? 'Available' : 'Not available';
+      gpuStatus.classList.add(response?.available ? 'connected' : 'disconnected');
+      gpuStatus.classList.remove(response?.available ? 'disconnected' : 'connected');
+      gpuDetail.textContent = response?.available ? (response.adapter || 'Available') : 'Not available';
     });
 
     // MCP/CDP — set as active for now (checked via ZAP)

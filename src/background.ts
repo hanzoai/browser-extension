@@ -991,25 +991,6 @@ async function handleMessage(request: any, sender: chrome.runtime.MessageSender,
       const { key, value } = request;
       // Forward to CDP bridge server so it can save to ~/.hanzo/extension/config.json
       cdpBridge.sendConfig(key, value);
-
-      // Also sync to IAM if authenticated (best-effort)
-      try {
-        const token = await auth.getValidAccessToken();
-        if (token) {
-          fetch('https://hanzo.id/api/update-user', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              properties: { [key]: value },
-            }),
-          }).catch(() => {});
-        }
-      } catch {
-        // Not authenticated
-      }
       sendResponse({ success: true });
       break;
     }

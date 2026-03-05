@@ -1,6 +1,6 @@
 {
   "name": "@hanzo/browser-extension",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "Browser extension for click-to-code navigation with MCP integration",
   "main": "cli.js",
   "bin": {

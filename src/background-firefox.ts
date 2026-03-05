@@ -1,18 +1,26 @@
 /**
  * Firefox-specific Background Script for Hanzo Browser Extension
  *
- * This script connects to the CDP bridge server as a WebSocket CLIENT
- * and handles commands from hanzo-mcp to control the browser.
+ * Uses shared auth.ts and chat-client.ts modules (unified with Chrome).
+ * Firefox provides chrome.* polyfill (since Firefox 101+), so shared
+ * modules that use chrome.* work without modification.
  *
- * Firefox differences from Chrome:
- * - Uses `browser.*` APIs (with Promises) instead of `chrome.*` (callbacks)
- * - Cannot use ES module exports at top level
- * - Cannot run WebSocket servers, only clients
- * - Uses `browser.tabs.executeScript` instead of `chrome.debugger`
+ * Firefox-specific differences:
+ * - Uses browser.tabs.executeScript instead of chrome.debugger (CDP)
+ * - Background is a persistent page, not a service worker
+ * - No ZAP binary protocol (WebSocket client only)
  */
 
 // Declare browser API for TypeScript
 declare const browser: typeof chrome;
+
+// Shared modules — auth.ts uses chrome.* which Firefox polyfills
+import * as auth from './auth';
+import { listModels, chatCompletion, ChatMessage } from './chat-client';
+
+// ---------------------------------------------------------------------------
+// Interfaces
+// ---------------------------------------------------------------------------
 
 interface CDPMessage {
   id: number;
@@ -48,6 +56,10 @@ const controlSession: ControlSession = {
   startedAt: null,
 };
 
+// ---------------------------------------------------------------------------
+// CDP WebSocket Client (Firefox-specific: client, not server)
+// ---------------------------------------------------------------------------
+
 class HanzoFirefoxExtension {
   private wsConnection: WebSocket | null = null;
   private cdpPort: number = 9223;
@@ -55,7 +67,14 @@ class HanzoFirefoxExtension {
 
   constructor() {
     console.log('[Hanzo] Firefox extension initializing...');
-    this.connect();
+    this.loadPort().then(() => this.connect());
+  }
+
+  private async loadPort(): Promise<void> {
+    try {
+      const result = await browser.storage.local.get(['cdpPort']);
+      if (result.cdpPort) this.cdpPort = result.cdpPort;
+    } catch {}
   }
 
   private connect(): void {
@@ -81,9 +100,7 @@ class HanzoFirefoxExtension {
       }
     };
 
-    this.wsConnection.onerror = (error) => {
-      console.error('[Hanzo] WebSocket error:', error);
-    };
+    this.wsConnection.onerror = () => {};
 
     this.wsConnection.onclose = () => {
       console.log('[Hanzo] Disconnected, reconnecting...');
@@ -91,8 +108,18 @@ class HanzoFirefoxExtension {
     };
   }
 
+  isConnected(): boolean {
+    return this.wsConnection?.readyState === WebSocket.OPEN;
+  }
+
+  sendToWs(data: unknown): void {
+    if (this.wsConnection?.readyState === WebSocket.OPEN) {
+      this.wsConnection.send(JSON.stringify(data));
+    }
+  }
+
   private register(): void {
-    this.send({
+    this.sendToWs({
       type: 'register',
       role: 'cdp-provider',
       capabilities: [
@@ -103,14 +130,11 @@ class HanzoFirefoxExtension {
   }
 
   private send(data: unknown): void {
-    if (this.wsConnection?.readyState === WebSocket.OPEN) {
-      this.wsConnection.send(JSON.stringify(data));
-    }
+    this.sendToWs(data);
   }
 
   private async handleCommand(message: CDPMessage): Promise<CDPResponse> {
     const { id, method, params = {} } = message;
-
     try {
       const result = await this.executeMethod(method, params);
       return { id, result };
@@ -119,9 +143,6 @@ class HanzoFirefoxExtension {
     }
   }
 
-  /**
-   * Wrap executeScript with a timeout to prevent blocking on GPU-heavy pages
-   */
   private executeScriptWithTimeout(
     tabId: number,
     code: string,
@@ -139,7 +160,6 @@ class HanzoFirefoxExtension {
     method: string,
     params: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
-    // Get active tab for most commands (native API, never blocks)
     const [activeTab] = await browser.tabs.query({
       active: true,
       currentWindow: true
@@ -158,18 +178,13 @@ class HanzoFirefoxExtension {
         };
       }
 
-      // Native tab property reads - never block on page content
       case 'hanzo.url': {
-        if (activeTab) {
-          return { result: { value: activeTab.url || '' } };
-        }
+        if (activeTab) return { result: { value: activeTab.url || '' } };
         throw new Error('No active tab');
       }
 
       case 'hanzo.title': {
-        if (activeTab) {
-          return { result: { value: activeTab.title || '' } };
-        }
+        if (activeTab) return { result: { value: activeTab.title || '' } };
         throw new Error('No active tab');
       }
 
@@ -227,11 +242,7 @@ class HanzoFirefoxExtension {
         if (activeTab?.id) {
           const expression = params.expression as string;
           const timeout = (params.timeout as number) || 10000;
-          const results = await this.executeScriptWithTimeout(
-            activeTab.id,
-            expression,
-            timeout
-          );
+          const results = await this.executeScriptWithTimeout(activeTab.id, expression, timeout);
           return { result: { value: results[0] } };
         }
         throw new Error('No active tab');
@@ -239,13 +250,11 @@ class HanzoFirefoxExtension {
 
       case 'Page.captureScreenshot':
       case 'hanzo.screenshot': {
-        // Use jpeg by default for speed on GPU-heavy pages
         const format = (params.format as string) || 'jpeg';
         const quality = (params.quality as number) || (format === 'jpeg' ? 80 : undefined);
         const opts: any = { format: format as 'png' | 'jpeg' };
         if (quality !== undefined) opts.quality = quality;
         const dataUrl = await browser.tabs.captureVisibleTab(opts);
-        // Remove data URL prefix to return raw base64
         const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
         return { data: base64 };
       }
@@ -270,14 +279,13 @@ class HanzoFirefoxExtension {
           this.notifyOverlay(activeTab.id, 'ai.control.highlight', { selector: params.selector as string });
           this.notifyOverlay(activeTab.id, 'ai.control.status', { text: `Filling ${params.selector}` });
           await this.executeScriptWithTimeout(activeTab.id, `
-              var el = document.querySelector('${selector}');
-              if (el) {
-                el.value = '${value}';
-                el.dispatchEvent(new Event('input', {bubbles: true}));
-                el.dispatchEvent(new Event('change', {bubbles: true}));
-              }
-            `
-          );
+            var el = document.querySelector('${selector}');
+            if (el) {
+              el.value = '${value}';
+              el.dispatchEvent(new Event('input', {bubbles: true}));
+              el.dispatchEvent(new Event('change', {bubbles: true}));
+            }
+          `);
           return { success: true };
         }
         throw new Error('No active tab or selector');
@@ -301,13 +309,12 @@ class HanzoFirefoxExtension {
         if (activeTab?.id && params.text) {
           const text = this.escapeValue(params.text as string);
           await this.executeScriptWithTimeout(activeTab.id, `
-              var el = document.activeElement;
-              if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
-                el.value += '${text}';
-                el.dispatchEvent(new Event('input', {bubbles: true}));
-              }
-            `
-          );
+            var el = document.activeElement;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+              el.value += '${text}';
+              el.dispatchEvent(new Event('input', {bubbles: true}));
+            }
+          `);
           return { success: true };
         }
         throw new Error('No active tab or text');
@@ -388,41 +395,9 @@ class HanzoFirefoxExtension {
   }
 }
 
-// =============================================================================
-// Auth + Chat Message Handlers (Firefox)
-// Uses browser.identity.launchWebAuthFlow for OAuth
-// =============================================================================
-
-const IAM_BASE = 'https://hanzo.id';
-const API_BASE = 'https://api.hanzo.ai';
-const CLIENT_ID = 'app-hanzo';
-const SCOPES = 'openid profile email';
-
-const STORAGE_KEYS = {
-  accessToken: 'hanzo_iam_access_token',
-  refreshToken: 'hanzo_iam_refresh_token',
-  idToken: 'hanzo_iam_id_token',
-  expiresAt: 'hanzo_iam_expires_at',
-  user: 'hanzo_iam_user',
-};
-
-// PKCE helpers
-function generateRandomString(length: number): string {
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  return Array.from(array, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, length);
-}
-
-async function sha256(plain: string): Promise<ArrayBuffer> {
-  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain));
-}
-
-function base64UrlEncode(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+// ---------------------------------------------------------------------------
+// RAG (Firefox-only: no ZAP, endpoint-only)
+// ---------------------------------------------------------------------------
 
 async function getRagConfig(): Promise<{
   endpoint: string;
@@ -451,18 +426,15 @@ async function getRagConfig(): Promise<{
 
 function normalizeRagSnippets(raw: any): RagSnippet[] {
   if (!raw) return [];
-
   const candidates: any[] = [];
   if (Array.isArray(raw)) candidates.push(...raw);
   if (Array.isArray(raw?.snippets)) candidates.push(...raw.snippets);
   if (Array.isArray(raw?.documents)) candidates.push(...raw.documents);
   if (Array.isArray(raw?.items)) candidates.push(...raw.items);
   if (Array.isArray(raw?.results)) candidates.push(...raw.results);
-
   if (!candidates.length && typeof raw?.content === 'string') {
     candidates.push({ content: raw.content, source: raw.source || 'rag-endpoint' });
   }
-
   return candidates
     .map((item) => {
       const content = String(item?.content ?? item?.text ?? item?.snippet ?? item?.body ?? '').trim();
@@ -489,12 +461,8 @@ async function queryRagEndpoint(params: {
   pageContext?: { url?: string; title?: string };
 }): Promise<RagSnippet[]> {
   if (!params.endpoint) return [];
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (params.apiKey) headers.Authorization = `Bearer ${params.apiKey}`;
-
   const response = await fetch(params.endpoint, {
     method: 'POST',
     headers,
@@ -506,12 +474,10 @@ async function queryRagEndpoint(params: {
       source: 'hanzo-browser-extension-firefox',
     }),
   });
-
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`RAG endpoint error ${response.status}: ${text || 'Unknown error'}`);
   }
-
   const raw = await response.json();
   return normalizeRagSnippets(raw).map((snippet) => ({
     ...snippet,
@@ -519,87 +485,17 @@ async function queryRagEndpoint(params: {
   }));
 }
 
-async function firefoxLogin(): Promise<any> {
-  const codeVerifier = generateRandomString(64);
-  const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
-  const state = generateRandomString(32);
-  const redirectUri = 'https://hanzo.ai/callback';
-
-  const authorizeUrl = new URL(`${IAM_BASE}/login/oauth/authorize`);
-  authorizeUrl.searchParams.set('client_id', CLIENT_ID);
-  authorizeUrl.searchParams.set('response_type', 'code');
-  authorizeUrl.searchParams.set('redirect_uri', redirectUri);
-  authorizeUrl.searchParams.set('code_challenge', codeChallenge);
-  authorizeUrl.searchParams.set('code_challenge_method', 'S256');
-  authorizeUrl.searchParams.set('scope', SCOPES);
-  authorizeUrl.searchParams.set('state', state);
-
-  // Tab-based auth: open a real browser tab for login
-  const callbackUrl = await new Promise<string>((resolve, reject) => {
-    let authTabId: number | undefined;
-    const timeout = setTimeout(() => { cleanup(); reject(new Error('Login timed out')); }, 300_000);
-
-    function cleanup() {
-      clearTimeout(timeout);
-      browser.tabs.onUpdated.removeListener(onUpdated);
-      browser.tabs.onRemoved.removeListener(onRemoved);
-    }
-    function onUpdated(tabId: number, changeInfo: any) {
-      if (tabId !== authTabId || !changeInfo.url) return;
-      if (changeInfo.url.startsWith(redirectUri)) {
-        cleanup();
-        browser.tabs.remove(tabId).catch(() => {});
-        resolve(changeInfo.url);
-      }
-    }
-    function onRemoved(tabId: number) {
-      if (tabId !== authTabId) return;
-      cleanup();
-      reject(new Error('Login cancelled'));
-    }
-
-    browser.tabs.onUpdated.addListener(onUpdated);
-    browser.tabs.onRemoved.addListener(onRemoved);
-    browser.tabs.create({ url: authorizeUrl.toString() }).then((tab: any) => {
-      authTabId = tab.id;
-    });
-  });
-
-  const url = new URL(callbackUrl);
-  if (url.searchParams.get('state') !== state) throw new Error('State mismatch');
-  const code = url.searchParams.get('code');
-  if (!code) throw new Error(url.searchParams.get('error_description') || 'No code');
-
-  const tokenResponse = await fetch(`${IAM_BASE}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code', client_id: CLIENT_ID,
-      code, redirect_uri: redirectUri, code_verifier: codeVerifier,
-    }),
-  });
-
-  if (!tokenResponse.ok) throw new Error(`Token exchange failed: ${await tokenResponse.text()}`);
-  const tokens = await tokenResponse.json();
-
-  const data: any = { [STORAGE_KEYS.accessToken]: tokens.access_token };
-  if (tokens.refresh_token) data[STORAGE_KEYS.refreshToken] = tokens.refresh_token;
-  if (tokens.id_token) data[STORAGE_KEYS.idToken] = tokens.id_token;
-  if (tokens.expires_in) data[STORAGE_KEYS.expiresAt] = Date.now() + tokens.expires_in * 1000;
-  await browser.storage.local.set(data);
-
-  const userResp = await fetch(`${IAM_BASE}/oauth/userinfo`, { headers: { Authorization: `Bearer ${tokens.access_token}` } });
-  const user = userResp.ok ? await userResp.json() : {};
-  await browser.storage.local.set({ [STORAGE_KEYS.user]: user });
-  return user;
-}
+// ---------------------------------------------------------------------------
+// Message Handler (unified auth via shared auth.ts)
+// ---------------------------------------------------------------------------
 
 browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: Function) => {
   (async () => {
     switch (request.action) {
+      // --- Auth (shared module — same code as Chrome) ---
       case 'auth.login':
         try {
-          const user = await firefoxLogin();
+          const user = await auth.login();
           sendResponse({ success: true, user });
         } catch (e: any) {
           sendResponse({ success: false, error: e.message });
@@ -607,79 +503,51 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
         break;
 
       case 'auth.logout':
-        await browser.storage.local.remove(Object.values(STORAGE_KEYS));
-        sendResponse({ success: true });
-        break;
-
-      case 'auth.status': {
-        const result = await browser.storage.local.get([STORAGE_KEYS.accessToken, STORAGE_KEYS.user]);
-        sendResponse({
-          success: true,
-          authenticated: !!result[STORAGE_KEYS.accessToken],
-          user: result[STORAGE_KEYS.user] || null,
-        });
-        break;
-      }
-
-      case 'auth.getToken': {
-        const r = await browser.storage.local.get([
-          STORAGE_KEYS.accessToken,
-          STORAGE_KEYS.refreshToken,
-          STORAGE_KEYS.expiresAt,
-        ]);
-        let token = r[STORAGE_KEYS.accessToken] || null;
-        const expiresAt = r[STORAGE_KEYS.expiresAt] || null;
-        const refreshTok = r[STORAGE_KEYS.refreshToken] || null;
-
-        // Auto-refresh if expired (60s buffer)
-        if (token && expiresAt && Date.now() >= expiresAt - 60_000 && refreshTok) {
-          try {
-            const resp = await fetch(`${IAM_BASE}/oauth/token`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: new URLSearchParams({
-                grant_type: 'refresh_token',
-                client_id: CLIENT_ID,
-                refresh_token: refreshTok,
-              }),
-            });
-            if (resp.ok) {
-              const tokens = await resp.json();
-              const data: any = { [STORAGE_KEYS.accessToken]: tokens.access_token };
-              if (tokens.refresh_token) data[STORAGE_KEYS.refreshToken] = tokens.refresh_token;
-              if (tokens.id_token) data[STORAGE_KEYS.idToken] = tokens.id_token;
-              if (tokens.expires_in) data[STORAGE_KEYS.expiresAt] = Date.now() + tokens.expires_in * 1000;
-              await browser.storage.local.set(data);
-              token = tokens.access_token;
-            } else {
-              // Refresh failed — clear tokens, user must re-login
-              await browser.storage.local.remove(Object.values(STORAGE_KEYS));
-              token = null;
-            }
-          } catch {
-            // Network error — return existing token, let API reject if expired
-          }
-        }
-
-        sendResponse({ success: !!token, token });
-        break;
-      }
-
-      case 'chat.listModels': {
-        const t = await browser.storage.local.get([STORAGE_KEYS.accessToken]);
-        if (!t[STORAGE_KEYS.accessToken]) { sendResponse({ success: false, error: 'Not authenticated' }); break; }
-        const resp = await fetch(`${API_BASE}/v1/models`, { headers: { Authorization: `Bearer ${t[STORAGE_KEYS.accessToken]}` } });
-        const data = await resp.json();
-        sendResponse({ success: true, models: data.data || data.models || data || [] });
-        break;
-      }
-
-      case 'chat.complete': {
-        const t = await browser.storage.local.get([STORAGE_KEYS.accessToken]);
-        if (!t[STORAGE_KEYS.accessToken]) { sendResponse({ success: false, error: 'Not authenticated' }); break; }
         try {
+          await auth.logout();
+          sendResponse({ success: true });
+        } catch (e: any) {
+          sendResponse({ success: false, error: e.message });
+        }
+        break;
+
+      case 'auth.status':
+        try {
+          const status = await auth.getAuthStatus();
+          sendResponse({ success: true, ...status });
+        } catch (e: any) {
+          sendResponse({ success: false, error: e.message });
+        }
+        break;
+
+      case 'auth.getToken':
+        try {
+          const token = await auth.getValidAccessToken();
+          sendResponse({ success: !!token, token });
+        } catch (e: any) {
+          sendResponse({ success: false, error: e.message });
+        }
+        break;
+
+      // --- Cloud Chat (shared module) ---
+      case 'chat.listModels':
+        try {
+          const token = await auth.getValidAccessToken();
+          if (!token) { sendResponse({ success: false, error: 'Not authenticated' }); break; }
+          const models = await listModels(token);
+          sendResponse({ success: true, models });
+        } catch (e: any) {
+          sendResponse({ success: false, error: e.message });
+        }
+        break;
+
+      case 'chat.complete':
+        try {
+          const token = await auth.getValidAccessToken();
+          if (!token) { sendResponse({ success: false, error: 'Not authenticated' }); break; }
           const model = String(request.model || 'gpt-4o');
-          const messages = (Array.isArray(request.messages) ? request.messages : [])
+          const messagesInput = Array.isArray(request.messages) ? request.messages : [];
+          const messages: ChatMessage[] = messagesInput
             .filter((m: any) => m && typeof m.content === 'string' && typeof m.role === 'string')
             .map((m: any) => ({
               role: (m.role === 'system' || m.role === 'assistant') ? m.role : 'user',
@@ -687,50 +555,70 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
             }))
             .slice(-24);
           if (!messages.length) { sendResponse({ success: false, error: 'messages are required' }); break; }
-          const resp = await fetch(`${API_BASE}/v1/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${t[STORAGE_KEYS.accessToken]}`,
-            },
-            body: JSON.stringify({
-              model, messages,
-              temperature: typeof request.temperature === 'number' ? request.temperature : undefined,
-              max_tokens: typeof request.max_tokens === 'number' ? request.max_tokens : undefined,
-            }),
+          const content = await chatCompletion(token, {
+            model, messages,
+            temperature: typeof request.temperature === 'number' ? request.temperature : undefined,
+            max_tokens: typeof request.max_tokens === 'number' ? request.max_tokens : undefined,
           });
-          if (!resp.ok) throw new Error(`Chat API error ${resp.status}`);
-          const chatData = await resp.json();
-          sendResponse({ success: true, content: chatData.choices?.[0]?.message?.content || '' });
+          sendResponse({ success: true, content });
         } catch (e: any) {
           sendResponse({ success: false, error: e.message });
         }
         break;
-      }
 
+      // --- ZAP Protocol (not available on Firefox — return proper status) ---
+      case 'zap.status':
+        sendResponse({ success: true, zap: { connected: false, mcps: [], extensionId: 'firefox' } });
+        break;
+
+      case 'zap.discover':
+        sendResponse({ success: true, mcps: [] });
+        break;
+
+      case 'zap.listTools':
+        sendResponse({ success: true, tools: [] });
+        break;
+
+      case 'zap.connect':
+      case 'zap.callTool':
+        sendResponse({ success: false, error: 'ZAP protocol not available on Firefox yet' });
+        break;
+
+      // --- Element selection (click-to-code) ---
       case 'elementSelected':
-        // Forward to CDP WebSocket if connected (click-to-code)
-        if (hanzoExtension['wsConnection']?.readyState === WebSocket.OPEN) {
-          hanzoExtension['wsConnection'].send(JSON.stringify({
+        if (hanzoExtension.isConnected()) {
+          hanzoExtension.sendToWs({
             type: 'elementSelected',
             data: request.data,
-          }));
+          });
         }
         sendResponse({ success: true });
         break;
 
-      case 'config.save':
-        sendResponse({ success: true });
-        break;
-
-      case 'bridge.status':
+      // --- Tab Filesystem ---
+      case 'listTabFS': {
+        const allTabs = await browser.tabs.query({});
         sendResponse({
           success: true,
-          connected: hanzoExtension['wsConnection']?.readyState === WebSocket.OPEN,
-          browsers: hanzoExtension['wsConnection']?.readyState === WebSocket.OPEN ? ['firefox'] : [],
+          tabs: allTabs.map(tab => ({
+            id: tab.id,
+            url: tab.url,
+            title: tab.title,
+            active: tab.active,
+          })),
         });
         break;
+      }
 
+      case 'readTabFS':
+        sendResponse({ success: false, error: 'Tab filesystem read not available on Firefox' });
+        break;
+
+      case 'writeTabFS':
+        sendResponse({ success: false, error: 'Tab filesystem write not available on Firefox' });
+        break;
+
+      // --- WebGPU / Local AI ---
       case 'checkWebGPU': {
         try {
           if (!navigator.gpu) {
@@ -749,18 +637,23 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
         break;
       }
 
+      case 'runLocalAI':
+        sendResponse({ success: false, error: 'Local AI not available on Firefox' });
+        break;
+
       case 'listAgents':
         sendResponse({ success: true, agents: [] });
         break;
 
       case 'stopAgent':
-        sendResponse({ success: false, error: 'Agent workers are not available in Firefox background mode yet' });
+        sendResponse({ success: false, error: 'Agent workers not available on Firefox' });
         break;
 
       case 'launchAIWorker':
-        sendResponse({ success: false, error: 'launchAIWorker is not implemented in Firefox background mode yet' });
+        sendResponse({ success: false, error: 'AI workers not available on Firefox' });
         break;
 
+      // --- RAG ---
       case 'rag.query': {
         try {
           const config = await getRagConfig();
@@ -781,17 +674,8 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
                 }
               : undefined,
           };
-
-          if (!params.query) {
-            sendResponse({ success: false, error: 'Query is required' });
-            break;
-          }
-
-          if (!params.endpoint) {
-            sendResponse({ success: true, source: 'none', snippets: [] });
-            break;
-          }
-
+          if (!params.query) { sendResponse({ success: false, error: 'Query is required' }); break; }
+          if (!params.endpoint) { sendResponse({ success: true, source: 'none', snippets: [] }); break; }
           const snippets = await queryRagEndpoint(params);
           sendResponse({ success: true, source: snippets.length ? 'rag-endpoint' : 'none', snippets });
         } catch (e: any) {
@@ -800,7 +684,39 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
         break;
       }
 
-      // --- AI Control Overlay (forwarded to content script) ---
+      // --- Bridge status ---
+      case 'bridge.status':
+        sendResponse({
+          success: true,
+          connected: hanzoExtension.isConnected(),
+          browsers: hanzoExtension.isConnected() ? ['firefox'] : [],
+        });
+        break;
+
+      // --- Config ---
+      case 'config.save':
+        sendResponse({ success: true });
+        break;
+
+      // --- In-page overlay (forwarded to content script) ---
+      case 'page.overlay.toggle':
+      case 'page.overlay.show':
+      case 'page.overlay.hide':
+      case 'page.overlay.status': {
+        try {
+          const tabId = typeof request.tabId === 'number'
+            ? request.tabId
+            : (sender.tab?.id ?? await hanzoExtension.getActiveTabId());
+          if (tabId === null) { sendResponse({ success: false, error: 'No target tab' }); break; }
+          const response = await browser.tabs.sendMessage(tabId, { action: request.action }).catch(() => null);
+          sendResponse({ success: true, tabId, ...(response || {}) });
+        } catch (e: any) {
+          sendResponse({ success: false, error: e.message });
+        }
+        break;
+      }
+
+      // --- AI Control Overlay ---
       case 'ai.control.start':
       case 'ai.control.cursor':
       case 'ai.control.highlight':
@@ -810,12 +726,10 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
           sendResponse({ success: false, error: 'No target tab found' });
           break;
         }
-
         if (request.action !== 'ai.control.start' && controlSession.active && controlSession.tabId && targetTabId !== controlSession.tabId) {
           sendResponse({ success: false, error: `Control locked to tab ${controlSession.tabId}` });
           break;
         }
-
         if (request.action === 'ai.control.start') {
           await hanzoExtension.startControlSession(targetTabId, request.task);
         } else {
@@ -826,12 +740,7 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
       }
 
       case 'ai.control.stop':
-        await hanzoExtension.stopControlSession();
-        sendResponse({ success: true });
-        break;
-
       case 'ai.control.cancel':
-        // User clicked Stop — end local control session
         await hanzoExtension.stopControlSession();
         sendResponse({ success: true });
         break;
@@ -841,13 +750,15 @@ browser.runtime.onMessage.addListener((request: any, sender: any, sendResponse: 
         break;
     }
   })();
-  return true; // Keep channel open
+  return true; // Keep channel open for async
 });
 
-// Initialize extension (no export - Firefox doesn't support ES modules in background)
+// ---------------------------------------------------------------------------
+// Startup
+// ---------------------------------------------------------------------------
+
 const hanzoExtension = new HanzoFirefoxExtension();
 
-// End active session when the controlled tab closes.
 browser.tabs.onRemoved.addListener((tabId) => {
   if (controlSession.active && controlSession.tabId === tabId) {
     void hanzoExtension.stopControlSession();
