@@ -49,7 +49,9 @@ function generateState(): string {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const IAM_BASE = 'https://hanzo.id';
+// Login UI lives on hanzo.id; Casdoor API is on iam.hanzo.ai
+const IAM_LOGIN = 'https://hanzo.id';
+const IAM_API = 'https://iam.hanzo.ai';
 const CLIENT_ID = 'app-hanzo';
 const SCOPES = 'openid profile email';
 
@@ -134,7 +136,7 @@ export async function login(): Promise<UserInfo> {
   const state = generateState();
   const redirectUri = getRedirectUri();
 
-  const authorizeUrl = new URL(`${IAM_BASE}/login/oauth/authorize`);
+  const authorizeUrl = new URL(`${IAM_LOGIN}/login/oauth/authorize`);
   authorizeUrl.searchParams.set('client_id', CLIENT_ID);
   authorizeUrl.searchParams.set('response_type', 'code');
   authorizeUrl.searchParams.set('redirect_uri', redirectUri);
@@ -156,11 +158,11 @@ export async function login(): Promise<UserInfo> {
     throw new Error(error);
   }
 
-  // Exchange code for tokens
-  const tokenResponse = await fetch(`${IAM_BASE}/oauth/token`, {
+  // Exchange code for tokens via Casdoor API (PKCE — no client_secret needed)
+  const tokenResponse = await fetch(`${IAM_API}/api/login/oauth/access_token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
       grant_type: 'authorization_code',
       client_id: CLIENT_ID,
       code,
@@ -276,10 +278,10 @@ export async function getValidAccessToken(): Promise<string | null> {
  * Refresh access token using refresh_token grant.
  */
 async function refreshAccessToken(refreshToken: string): Promise<string> {
-  const response = await fetch(`${IAM_BASE}/oauth/token`, {
+  const response = await fetch(`${IAM_API}/api/login/oauth/access_token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
       grant_type: 'refresh_token',
       client_id: CLIENT_ID,
       refresh_token: refreshToken,
@@ -297,7 +299,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
  * Fetch user info from IAM.
  */
 async function fetchUserInfo(accessToken: string): Promise<UserInfo> {
-  const response = await fetch(`${IAM_BASE}/oauth/userinfo`, {
+  const response = await fetch(`${IAM_API}/api/userinfo`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) throw new Error('Failed to fetch user info');
